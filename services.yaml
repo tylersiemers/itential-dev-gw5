@@ -1,0 +1,27 @@
+# Hello World IAG5 service.
+# 1. Code lives in https://github.com/tylersiemers/itential-dev-gw5 (hello-world/main.py).
+# 2. On the gateway host:  iagctl db import services.yaml --validate
+#                          iagctl db import services.yaml
+#                          iagctl run service python-script hello-world
+decorators:
+  - name: hello-world
+    schema:
+      $id: hello-world
+      $schema: https://json-schema.org/draft/202012/schema
+      type: object
+      properties: {}
+      additionalProperties: false
+
+repositories:
+  - name: hello-world-repo
+    url: https://github.com/tylersiemers/itential-dev-gw5.git
+    reference: main
+
+services:
+  - name: hello-world
+    type: python-script
+    description: Returns a Hello World JSON message
+    filename: main.py
+    working-directory: hello-world
+    repository: hello-world-repo
+    decorator: hello-world
