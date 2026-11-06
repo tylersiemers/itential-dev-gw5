@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """IAG5 python-script service: SSH health check for Inventory Manager nodes.
 
-Gateway5 passes the nodes chosen in runService's `inventory` on stdin as
-{"inventory_nodes": [{"name", "attributes", "tags"}, ...]}. For each node this
-connects with netmiko (itential_platform = netmiko device_type), runs one
-command, and reports reachability. Always prints one JSON object and exits 0.
+Nodes come from either:
+  * --nodes: a JSON string of Inventory Manager nodes, in any wrapper the
+    platform returns (a list, {"data": [...]}, {"result": {"data": [...]}}),
+    e.g. the stringified output of InventoryManager.getNodesByInventory; or
+  * stdin {"inventory_nodes": [...]} when the platform passes runService's
+    `inventory` through (newer Gateway Manager versions).
+For each node this connects with netmiko (itential_platform = netmiko
+device_type), runs one command, and reports reachability. Always prints one
+JSON object and exits 0.
 """
 import argparse
 import json
@@ -39,20 +44,43 @@ def check(node, command):
     return result
 
 
+def find_nodes(obj):
+    """Return the first list of node dicts (items with "attributes") found in obj."""
+    if isinstance(obj, list):
+        if obj and all(isinstance(i, dict) and "attributes" in i for i in obj):
+            return obj
+        items = obj
+    elif isinstance(obj, dict):
+        items = obj.values()
+    else:
+        return []
+    for item in items:
+        found = find_nodes(item)
+        if found:
+            return found
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--command", default="")
+    parser.add_argument("--nodes", default="")
     args, _ = parser.parse_known_args()
     command = args.command or "show version"   # unset decorator props arrive as ""
 
+    nodes, source = [], ""
     try:
-        raw = sys.stdin.read() if not sys.stdin.isatty() else ""
-        nodes = (json.loads(raw) if raw.strip() else {}).get("inventory_nodes") or []
+        if args.nodes.strip():
+            nodes, source = find_nodes(json.loads(args.nodes)), "param"
+        if not nodes and not sys.stdin.isatty():
+            raw = sys.stdin.read()
+            if raw.strip():
+                nodes, source = find_nodes(json.loads(raw)), "stdin"
     except ValueError as exc:
-        print(json.dumps({"success": False, "error": f"bad stdin: {exc}"}))
+        print(json.dumps({"success": False, "error": f"could not parse nodes JSON: {exc}"}))
         return
     if not nodes:
-        print(json.dumps({"success": False, "error": "no inventory nodes received"}))
+        print(json.dumps({"success": False, "error": "no inventory nodes received (pass --nodes or an inventory)"}))
         return
 
     with ThreadPoolExecutor(max_workers=min(10, len(nodes))) as pool:
@@ -62,6 +90,7 @@ def main():
         "success": True,
         "healthy": up == len(devices),
         "command": command,
+        "node_source": source,
         "summary": {"total": len(devices), "up": up, "down": len(devices) - up},
         "down_devices": [d["name"] for d in devices if not d["reachable"]],
         "devices": devices,
