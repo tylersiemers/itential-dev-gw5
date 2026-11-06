@@ -392,8 +392,12 @@ def main():
         return
     sites = sorted(set(sites) | {d["site"] for d in devices if d.get("site")})
     url, token = os.environ.get("NETBOX_URL", ""), os.environ.get("NETBOX_TOKEN", "")
-    if not url or not token:
-        print(json.dumps({"success": False, "error": "NETBOX_URL / NETBOX_TOKEN not set"}))
+    missing_env = [k for k, v in (("NETBOX_URL", url), ("NETBOX_TOKEN", token)) if not v]
+    if missing_env:
+        print(json.dumps({"success": False,
+                          "error": f"environment not set: {', '.join(missing_env)}",
+                          "env_names_seen": sorted(k for k in os.environ
+                                                   if k.startswith(("NETBOX", "GATEWAY")))}))
         return
     missing_site = [d.get("name") for d in devices if not d.get("site")]
     if missing_site:
