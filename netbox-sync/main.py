@@ -320,10 +320,14 @@ class Sync:
             return ip
         assigned = ip.get("assigned_object") or {}
         tags = {t["slug"] for t in ip.get("tags", [])}
-        if assigned and (assigned.get("device") or {}).get("id") != dev["id"] \
-                and SYNC_TAG not in tags:
-            res["flags"].append(f"IP {ip['address']} is assigned to another object; not changed")
-            res["ip"] = {"address": ip["address"], "action": "conflict"}
+        owner = (assigned.get("device") or {})
+        if assigned and owner.get("id") != dev["id"]:
+            # Spec §6: an IP already on another object is a conflict, even when
+            # that object is also managed by this sync. Never move it.
+            res["flags"].append(f"IP {ip['address']} is assigned to "
+                                f"{owner.get('name') or 'another object'}; not changed")
+            res["ip"] = {"address": ip["address"], "action": "conflict",
+                         "assigned_to": owner.get("name")}
             return None
         diff = {}
         if ip["address"] != prefix:
