@@ -11,6 +11,16 @@ decorators:
       type: object
       properties: {}
       additionalProperties: false
+  - name: device-health
+    schema:
+      $id: device-health
+      $schema: https://json-schema.org/draft/202012/schema
+      type: object
+      properties:
+        command:
+          type: string
+          description: "Command to run on each node (default: show version)"
+      additionalProperties: false
 
 repositories:
   - name: hello-world-repo
@@ -25,3 +35,16 @@ services:
     working-directory: hello-world
     repository: hello-world-repo
     decorator: hello-world
+  - name: device-health
+    type: python-script
+    description: SSH health check for Inventory Manager nodes (netmiko)
+    filename: main.py
+    working-directory: device-health
+    repository: hello-world-repo
+    decorator: device-health
+    runtime:
+      req-file: requirements.txt
+
+# --- device-health: SSH reachability check for Inventory Manager nodes ---
+# Call with runService: inventory = [{"inventory": "containerlab", "nodeNames": [...]}]
+# CLI test:  iagctl run service python-script device-health
