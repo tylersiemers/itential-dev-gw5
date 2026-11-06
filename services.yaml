@@ -25,6 +25,36 @@ decorators:
           description: "JSON string of Inventory Manager nodes (e.g. stringified getNodesByInventory output)"
       additionalProperties: false
 
+  - name: device-facts
+    schema:
+      $id: device-facts
+      $schema: https://json-schema.org/draft/202012/schema
+      type: object
+      properties:
+        nodes:
+          type: string
+          description: "JSON string of Inventory Manager nodes (stringified getNodesByInventory output)"
+        max_workers:
+          type: string
+          description: "Devices collected in parallel (default 5)"
+      additionalProperties: false
+  - name: netbox-sync
+    schema:
+      $id: netbox-sync
+      $schema: https://json-schema.org/draft/202012/schema
+      type: object
+      properties:
+        devices:
+          type: string
+          description: "JSON string: device-facts devices (each with site set)"
+        sites:
+          type: string
+          description: "JSON string: list of site names this run covers"
+        dry_run:
+          type: string
+          description: "'false' to write to NetBox; anything else plans only"
+      additionalProperties: false
+
 repositories:
   - name: hello-world-repo
     url: https://github.com/tylersiemers/itential-dev-gw5.git
@@ -48,6 +78,36 @@ services:
     runtime:
       req-file: requirements.txt
 
+  - name: device-facts
+    type: python-script
+    description: Device facts (model, serial, OS, interfaces) for Inventory Manager nodes - itential-syncto-netbox
+    filename: main.py
+    working-directory: device-facts
+    repository: hello-world-repo
+    decorator: device-facts
+    runtime:
+      req-file: requirements.txt
+  - name: netbox-sync
+    type: python-script
+    description: Plan/apply Itential inventory -> NetBox device sync - itential-syncto-netbox
+    filename: main.py
+    working-directory: netbox-sync
+    repository: hello-world-repo
+    decorator: netbox-sync
+    secrets:
+      - name: netbox-sync-token
+        type: env
+        target: NETBOX_TOKEN
+    runtime:
+      req-file: requirements.txt
+      env:
+        NETBOX_URL: "http://192.168.1.253:8001"
+
 # --- device-health: SSH reachability check for Inventory Manager nodes ---
 # Call with runService: params.nodes = JSON string of Inventory Manager nodes
 # CLI test:  iagctl run service python-script device-health
+
+# --- itential-syncto-netbox ---
+# device-facts: params.nodes = JSON string of Inventory Manager nodes -> credential-free facts
+# netbox-sync:  params.devices / sites / dry_run; NetBox token from secret netbox-sync-token
+#               (create once: iagctl create secret netbox-sync-token --value @<file>)
