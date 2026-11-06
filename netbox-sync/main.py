@@ -9,8 +9,11 @@ workflow), plus the list of sites this run covers.
   --sites    JSON string: list of site names covered by this run
   --dry_run  "true" = plan only (no writes); anything else = apply
 
-Env:  NETBOX_URL   (runtime.env)
-      NETBOX_TOKEN (Gateway5 secret netbox-sync-token)
+Env:  NETBOX_URL        (runtime.env)
+      NETBOX_TOKEN      (Gateway5 secret netbox-sync-token, on gateways that
+                         inject secrets as env vars), or
+      NETBOX_TOKEN_FILE (runtime.env: path of a token file mounted read-only
+                         into the gateway; used on Gateway5 5.1.0)
 
 Rules (customer-spec.md / solution-design.md):
   * only objects tagged `itential-sync` are updated or marked stale;
@@ -392,6 +395,17 @@ def main():
         return
     sites = sorted(set(sites) | {d["site"] for d in devices if d.get("site")})
     url, token = os.environ.get("NETBOX_URL", ""), os.environ.get("NETBOX_TOKEN", "")
+    token_file = os.environ.get("NETBOX_TOKEN_FILE", "")
+    if not token and token_file:
+        # Gateway5 5.1.0 does not inject secrets as env vars, so the token can
+        # also come from a file mounted read-only into the gateway container.
+        try:
+            with open(token_file) as fh:
+                token = fh.read().strip()
+        except OSError as exc:
+            print(json.dumps({"success": False,
+                              "error": f"cannot read NETBOX_TOKEN_FILE: {exc.strerror}"}))
+            return
     missing_env = [k for k, v in (("NETBOX_URL", url), ("NETBOX_TOKEN", token)) if not v]
     if missing_env:
         print(json.dumps({"success": False,

@@ -102,6 +102,7 @@ services:
       req-file: requirements.txt
       env:
         NETBOX_URL: "http://192.168.1.253:8001"
+        NETBOX_TOKEN_FILE: "/etc/gateway-secrets/netbox-sync-token"
 
 # --- device-health: SSH reachability check for Inventory Manager nodes ---
 # Call with runService: params.nodes = JSON string of Inventory Manager nodes
@@ -110,4 +111,5 @@ services:
 # --- itential-syncto-netbox ---
 # device-facts: params.nodes = JSON string of Inventory Manager nodes -> credential-free facts
 # netbox-sync:  params.devices / sites / dry_run; NetBox token from secret netbox-sync-token
-#               (create once: iagctl create secret netbox-sync-token --value @<file>)
+#               Gateway5 5.1.0 doesn't inject secrets as env vars, so the token is also read from
+#               NETBOX_TOKEN_FILE, a file mounted read-only into the gateway container.
