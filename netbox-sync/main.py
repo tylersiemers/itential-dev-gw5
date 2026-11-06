@@ -367,15 +367,40 @@ class Sync:
 
 
 def load_devices(raw):
+    """Accept a device list, device-facts output, or the orchestrator's childJob
+    loop output: [{"inventory": name, "collectStatus": ..., "factsJson": "<device-facts JSON>"}].
+
+    Returns (devices, failed_inventories). Devices from an inventory get
+    site = inventory name unless the node set its own `site` attribute.
+    """
     data = json.loads(raw) if raw.strip() else []
     if isinstance(data, dict):
-        data = data.get("devices", [])
-    out = []
-    for item in data:  # accept nested lists (one list per inventory)
-        out.extend(item if isinstance(item, list) else
-                   item.get("devices", []) if isinstance(item, dict) and "devices" in item
-                   else [item])
-    return out
+        data = [data]
+    out, failed = [], []
+    for item in data:
+        if isinstance(item, list):
+            out.extend(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        if "inventory" in item and ("factsJson" in item or "collectStatus" in item):
+            inv = item.get("inventory")
+            try:
+                facts = item.get("factsJson")
+                facts = json.loads(facts) if isinstance(facts, str) else (facts or {})
+            except ValueError:
+                facts = {}
+            if item.get("collectStatus") != "success" or not facts.get("success"):
+                failed.append({"inventory": inv,
+                               "error": facts.get("error") or "device collection failed"})
+                continue
+            for dev in facts.get("devices", []):
+                out.append(dict(dev, site=dev.get("site") or inv))
+        elif "devices" in item:
+            out.extend(item["devices"])
+        else:
+            out.append(item)
+    return out, failed
 
 
 def main():
@@ -386,14 +411,16 @@ def main():
     args, _ = parser.parse_known_args()
     dry_run = args.dry_run.strip().lower() != "false"   # safe default: plan only
     try:
-        devices = load_devices(args.devices)
+        devices, failed_inventories = load_devices(args.devices)
         sites = json.loads(args.sites) if args.sites.strip() else []
         if isinstance(sites, str):
             sites = [sites]
     except ValueError as exc:
         print(json.dumps({"success": False, "error": f"bad JSON input: {exc}"}))
         return
-    sites = sorted(set(sites) | {d["site"] for d in devices if d.get("site")})
+    # Never mark devices stale in a site whose inventory could not be collected.
+    skip_sites = {f["inventory"] for f in failed_inventories}
+    sites = sorted((set(sites) | {d["site"] for d in devices if d.get("site")}) - skip_sites)
     url, token = os.environ.get("NETBOX_URL", ""), os.environ.get("NETBOX_TOKEN", "")
     token_file = os.environ.get("NETBOX_TOKEN_FILE", "")
     if not token and token_file:
@@ -422,7 +449,7 @@ def main():
     sync = Sync(nb)
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
     report = {"success": True, "dry_run": dry_run, "started": now, "devices": [],
-              "stale": [], "bootstrap": [],
+              "stale": [], "bootstrap": [], "failed_inventories": failed_inventories,
               "summary": {"created": 0, "updated": 0, "unchanged": 0, "offlined": 0,
                           "conflicts": 0, "failed": 0}}
     try:
@@ -453,7 +480,7 @@ def main():
     s["offlined"] = sum(1 for x in report["stale"] if x["action"] == "offline")
     report["bootstrap"] = sync.bootstrap
     report["netbox_writes"] = nb.writes
-    if s["failed"] or report.get("stale_error"):
+    if s["failed"] or report.get("stale_error") or failed_inventories:
         report["success"] = False
     print(json.dumps(report))
 
